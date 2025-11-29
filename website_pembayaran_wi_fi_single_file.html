@@ -1,0 +1,381 @@
+<!-- Simpan file ini sebagai: index.html -->
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sistem Pembayaran WiFi — Demo</title>
+  <style>
+    :root{--accent:#1f8ef1;--bg:#f5f7fb;--card:#ffffff}
+    *{box-sizing:border-box;font-family:Inter,Segoe UI,Roboto,Arial}
+    body{margin:0;background:var(--bg);color:#0b1220}
+    header{background:linear-gradient(90deg,var(--accent),#2bc0ff);color:#fff;padding:20px}
+    .container{max-width:1000px;margin:22px auto;padding:16px}
+    .grid{display:grid;gap:16px}
+    .cols-3{grid-template-columns:1fr 1fr 1fr}
+    .card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 4px 18px rgba(12,20,40,0.06)}
+    h1,h2{margin:0 0 8px}
+    .muted{color:#6b7280;font-size:14px}
+    .pkg{border:1px dashed rgba(10,10,10,0.06);padding:12px;border-radius:10px}
+    button{background:var(--accent);color:#fff;border:0;padding:10px 12px;border-radius:8px;cursor:pointer}
+    .outline{background:transparent;border:1px solid rgba(10,10,10,0.06);color:inherit}
+    .form-row{display:flex;gap:8px;align-items:center}
+    input,select{padding:10px;border-radius:8px;border:1px solid #e6e9ef;flex:1}
+    footer{margin-top:24px;text-align:center;color:#94a3b8}
+    .center{text-align:center}
+    .tiny{font-size:13px;color:#64748b}
+    nav{display:flex;gap:8px;align-items:center}
+    .admin{background:#fff6e6;color:#a45b00;padding:6px 10px;border-radius:8px}
+    @media (max-width:860px){.cols-3{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <nav style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <h1>WiFiPay — Sistem Pembayaran WiFi</h1>
+          <div class="tiny">Sederhana • Demo • Siap diintegrasikan ke payment gateway</div>
+        </div>
+        <div>
+          <button id="adminToggle" class="outline">Admin</button>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="card" style="margin-bottom:16px">
+      <h2>Status Pelanggan</h2>
+      <div class="form-row">
+        <input id="searchName" placeholder="Cari nama pelanggan..." />
+        <select id="filterStatus">
+          <option value="ALL">Semua</option>
+          <option value="PAID">Sudah Bayar</option>
+          <option value="UNPAID">Belum Bayar</option>
+        </select>
+        <button id="addCustomer" class="outline">Tambah Pelanggan</button>
+      </div>
+      <div id="customerTable" style="margin-top:10px"></div>
+    </div>
+
+    <div class="grid cols-3">
+      <section class="card">
+        <h2>Paket Internet</h2>
+        <p class="muted">Pilih paket lalu lanjutkan pembayaran. Demo ini memakai simulasi pembayaran.</p>
+        <div id="packages" style="margin-top:12px;display:grid;gap:10px">
+          <!-- paket akan diisi oleh JS -->
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Ringkasan</h2>
+        <div id="summary" class="muted">Belum ada paket yang dipilih.</div>
+        <div style="margin-top:12px">
+          <label class="tiny">Nama pelanggan</label>
+          <input id="customerName" placeholder="Nama lengkap atau nomor kamar" />
+        </div>
+        <div style="margin-top:10px" class="form-row">
+          <label class="tiny">Metode bayar</label>
+          <select id="paymentMethod">
+            <option value="mock">Pembayaran (Demo)</option>
+            <option value="bank">Transfer Bank (Instruksi)</option>
+            <option value="qris">QRIS (Scan dengan e-wallet)</option>
+          </select>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+          <button id="payBtn">Bayar Sekarang</button>
+          <button id="clearBtn" class="outline">Batal</button>
+        </div>
+      </section>
+
+      <section class="card" id="receiptCard">
+        <h2>Tanda Terima / Kode Akses</h2>
+        <div id="receiptArea" class="muted">Transaksi belum dilakukan.</div>
+        <div style="margin-top:12px;" class="center">
+          <button id="printBtn" class="outline">Cetak / Simpan PDF</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- Admin area (hidden by default) -->
+    <div id="adminArea" style="display:none;margin-top:18px">
+      <div class="card">
+        <h2 class="center">Admin — Kelola Paket</h2>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <input id="newName" placeholder="Nama paket (contoh: 3 jam)" />
+          <input id="newPrice" placeholder="Tarif/Bulan (Rp)" type="number" />
+          <button id="addPkg">Tambah</button>
+        </div>
+        <div id="pkgList" class="muted">Tidak ada paket.</div>
+      </div>
+    </div>
+
+    <footer>
+      <div class="tiny">Catatan: ini adalah versi demo. Ganti integrasi pembayaran dengan payment gateway (Midtrans, Xendit, Stripe, dsb.) untuk produksi.</div>
+    </footer>
+  </main>
+
+  <script>
+    // --- Simple data store (localStorage) ---
+    const DEFAULT_PACKAGES = [
+      {id:'p1',name:'1 Jam',price:5000,duration:'1 jam'},
+      {id:'p2',name:'3 Jam',price:12000,duration:'3 jam'},
+      {id:'p3',name:'24 Jam',price:25000,duration:'24 jam'}
+    ];
+
+    function loadState(){
+      const pkgs = JSON.parse(localStorage.getItem('wifi_pkgs')||'null') || DEFAULT_PACKAGES;
+      const tx = JSON.parse(localStorage.getItem('wifi_tx')||'null');
+      return {pkgs, tx};
+    }
+
+    function saveState(state){
+      localStorage.setItem('wifi_pkgs', JSON.stringify(state.pkgs));
+      if(state.tx) localStorage.setItem('wifi_tx', JSON.stringify(state.tx));
+    }
+
+    // --- UI helpers ---
+    const packagesDiv = document.getElementById('packages');
+    const summaryDiv = document.getElementById('summary');
+    const receiptArea = document.getElementById('receiptArea');
+    const receiptCard = document.getElementById('receiptCard');
+
+    let state = loadState();
+    let selected = null;
+
+    function renderPackages(){
+      packagesDiv.innerHTML='';
+      state.pkgs.forEach(p=>{
+        const el = document.createElement('div');
+        el.className='pkg';
+        el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${p.name}</strong><div class="tiny">${p.duration}</div></div><div><div style="font-weight:700">Rp ${numberWithSeparator(p.price)}</div></div></div>`;
+        el.addEventListener('click',()=>{selectPackage(p.id)});
+        packagesDiv.appendChild(el);
+      });
+    }
+
+    function selectPackage(id){
+      selected = state.pkgs.find(x=>x.id===id);
+      summaryDiv.innerHTML = `<strong>${selected.name}</strong> — Rp ${numberWithSeparator(selected.price)} <div class="tiny">Durasi: ${selected.duration}</div>`;
+    }
+
+    function numberWithSeparator(x){return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g,'.')}
+
+    // --- Payment flow (simulated) ---
+    document.getElementById('payBtn').addEventListener('click',()=>{
+      const name = document.getElementById('customerName').value.trim() || 'Tamu';
+      const method = document.getElementById('paymentMethod').value;
+      if(!selected){alert('Pilih paket terlebih dahulu');return}
+
+      // in production: here you would call server to create invoice and return payment token/QR
+      if(method==='mock'){
+        const tx = createTx(selected, name, 'BERHASIL');
+        showReceipt(tx);
+        state.tx = tx; saveState(state);
+      } else if(method==='bank'){
+        const tx = createTx(selected, name, 'PENDING');
+        tx.instructions = `Transfer ke BCA 123-456-789 a.n. WiFiPay\nCantumkan kode: ${tx.code}`;
+        showReceipt(tx);
+        state.tx = tx; saveState(state);
+      } else if(method==='qris'){
+        const tx = createTx(selected, name, 'PENDING');
+        tx.qr = generateFakeQR(tx.code);
+        showReceipt(tx);
+        state.tx = tx; saveState(state);
+      }
+    });
+
+    function createTx(pkg, name, status){
+      const code = 'WIFI' + Date.now().toString().slice(-6);
+      const expires = new Date(Date.now()+1000*60*60).toISOString();
+      return {code,customer:name,package:pkg.name,price:pkg.price,status,expires,issued:new Date().toISOString()};
+    }
+
+    function generateFakeQR(code){
+      // simple data URI with text (not real QR). Replace with server-side QR generator if needed.
+      return 'data:text/plain;base64,' + btoa('QR:'+code);
+    }
+
+    function showReceipt(tx){
+      receiptArea.innerHTML = `<div><strong>Kode Akses:</strong> <span style="font-size:18px">${tx.code}</span></div>
+        <div class="tiny" style="margin-top:6px">Pelanggan: ${tx.customer}</div>
+        <div class="tiny">Paket: ${tx.package} — Rp ${numberWithSeparator(tx.price)}</div>
+        <div class="tiny">Status: <strong>${tx.status}</strong></div>
+        <div class="tiny">Keluar: ${new Date(tx.issued).toLocaleString()}</div>
+        ${tx.instructions? `<pre class='tiny'>Instruksi: ${tx.instructions}</pre>`:''}
+        ${tx.qr? `<div style='margin-top:8px'>QR (simulasi): <code class='tiny'>${tx.qr.slice(0,60)}...</code></div>`:''}`;
+    }
+
+    // --- Print button ---
+    document.getElementById('printBtn').addEventListener('click',()=>{
+      window.print();
+    });
+
+    // --- Clear selection ---
+    document.getElementById('clearBtn').addEventListener('click',()=>{
+      selected = null; summaryDiv.innerHTML='Belum ada paket yang dipilih.'; receiptArea.innerHTML='Transaksi belum dilakukan.';
+      localStorage.removeItem('wifi_tx'); state.tx = null;
+    });
+
+    // --- Admin ---
+    const adminToggle = document.getElementById('adminToggle');
+    const adminArea = document.getElementById('adminArea');
+    adminToggle.addEventListener('click',()=>{
+      const pwd = prompt('Masukkan kata sandi admin demo (default: admin123)');
+      if(pwd==='admin123') adminArea.style.display = (adminArea.style.display==='none')? 'block':'none';
+      else if(pwd!==null) alert('Sandi salah');
+    });
+
+    function renderAdminList(){
+      const list = document.getElementById('pkgList');
+      list.innerHTML='';
+      state.pkgs.forEach(p=>{
+        const row = document.createElement('div');
+        row.style.display='flex';row.style.justifyContent='space-between';row.style.alignItems='center';row.style.padding='6px 0';
+        row.innerHTML = `<div><strong>${p.name}</strong> — Rp ${numberWithSeparator(p.price)}</div>`;
+        const right = document.createElement('div');
+        const del = document.createElement('button'); del.className='outline'; del.textContent='Hapus';
+        del.addEventListener('click',()=>{ if(confirm('Hapus paket?')){ state.pkgs = state.pkgs.filter(x=>x.id!==p.id); saveState(state); renderPackages(); renderAdminList(); }});
+        right.appendChild(del);
+        row.appendChild(right);
+        list.appendChild(row);
+      });
+      if(state.pkgs.length===0) list.textContent='Tidak ada paket.';
+    }
+
+    document.getElementById('addPkg').addEventListener('click',()=>{
+      const name = document.getElementById('newName').value.trim();
+      const price = parseInt(document.getElementById('newPrice').value || '0',10);
+      if(!name || !price){alert('Isi nama dan harga');return}
+      const id = 'p' + Date.now();
+      state.pkgs.push({id,name,price,duration:'-'})
+      saveState(state); renderPackages(); renderAdminList(); document.getElementById('newName').value=''; document.getElementById('newPrice').value='';
+    });
+
+    // --- DATA PELANGGAN BULANAN (IMPORT AWAL) ---
+    // ✅ = sudah bayar, TF = transfer
+    // Tarif berikut adalah PER BULAN (bukan per jam)
+    const IMPORT_CUSTOMERS = [
+      {no:'001',nama:'Server',paket:'-',harga:0,status:'UNPAID'},
+      {no:'002',nama:'Fatir MTW',paket:'MTW',harga:150,status:'UNPAID'},
+      {no:'003',nama:'Bpk Fazil MTW',paket:'MTW',harga:150,status:'UNPAID'},
+      {no:'004',nama:'Mama Kiki MTW',paket:'MTW',harga:150,status:'UNPAID'},
+      {no:'005',nama:'Anita MTW',paket:'MTW',harga:150,status:'UNPAID'},
+      {no:'006',nama:'La Rapi MTW',paket:'MTW',harga:150,status:'PAID'},
+      {no:'007',nama:'Mama Emi MTW',paket:'MTW',harga:150,status:'PAID'},
+      {no:'008',nama:'Awal MTW',paket:'MTW',harga:150,status:'UNPAID'},
+      {no:'009',nama:'Asfin MTW',paket:'MTW',harga:150,status:'UNPAID'},
+      {no:'010',nama:'Hidrat MTW',paket:'MTW',harga:150,status:'UNPAID'},
+      {no:'011',nama:'Indriati MTW',paket:'MTW',harga:150,status:'PAID'},
+      {no:'012',nama:'Akmal MTW',paket:'MTW',harga:150,status:'PAID'},
+      {no:'013',nama:'Bpk Nazar MTW',paket:'MTW',harga:150,status:'PAID'},
+      {no:'014',nama:'Mama Putra MTW',paket:'MTW',harga:150,status:'UNPAID'},
+      {no:'015',nama:'La Dawan MTW',paket:'MTW',harga:250,status:'PAID'},
+      {no:'016',nama:'Mama Nanda MTW',paket:'MTW',harga:150,status:'PAID'},
+      {no:'017',nama:'Ibu Nanang MTW',paket:'MTW',harga:150,status:'UNPAID'},
+      {no:'018',nama:'Mama Hasnur MTW',paket:'MTW',harga:150,status:'PAID'},
+      {no:'019',nama:'Mama Novi MTW',paket:'MTW',harga:200,status:'UNPAID'},
+      {no:'020',nama:'Mama Fani MTW',paket:'MTW',harga:150,status:'PAID'},
+      {no:'021',nama:'Mama Farel MTW',paket:'MTW',harga:150,status:'UNPAID'},
+      {no:'022',nama:'Bpk Azka MTW',paket:'MTW',harga:150,status:'PAID'},
+      {no:'023',nama:'Mama Imi MTW',paket:'MTW',harga:150,status:'PAID'},
+      {no:'025',nama:'Basri GJY',paket:'GJY',harga:150,status:'UNPAID'},
+      {no:'026',nama:'Bengkel GJY',paket:'GJY',harga:150,status:'UNPAID'},
+      {no:'027',nama:'Lisna Wati KRA',paket:'KRA',harga:150,status:'PAID'},
+      {no:'028',nama:'Sudarman KRA',paket:'KRA',harga:150,status:'UNPAID'},
+      {no:'030',nama:'Salim KRA',paket:'KRA',harga:150,status:'PAID'},
+      {no:'032',nama:'Ibu Marliana',paket:'-',harga:150,status:'UNPAID'},
+      {no:'033',nama:'Ibu Farida KRA',paket:'KRA',harga:150,status:'PAID'},
+      {no:'034',nama:'Ibu Nunung KRA',paket:'KRA',harga:150,status:'UNPAID'},
+      {no:'035',nama:'Mama Aisyah KRA',paket:'KRA',harga:150,status:'UNPAID'},
+      {no:'036',nama:'Hamirudin Btn GJY',paket:'GJY',harga:150,status:'UNPAID'},
+      {no:'037',nama:'Yusti KRA',paket:'KRA',harga:200,status:'UNPAID'},
+      {no:'038',nama:'Kaif GJY',paket:'GJY',harga:150,status:'UNPAID'},
+      {no:'039',nama:'Andi Firman GJY',paket:'GJY',harga:150,status:'UNPAID'},
+      {no:'040',nama:'Ibu Yakin Btn GJY',paket:'GJY',harga:150,status:'UNPAID'},
+      {no:'041',nama:'Hesni KRA',paket:'KRA',harga:150,status:'PAID'},
+      {no:'042',nama:'Mardi KRA',paket:'KRA',harga:150,status:'UNPAID'},
+      {no:'043',nama:'Fitria KRA',paket:'KRA',harga:150,status:'PAID'},
+      {no:'044',nama:'Mas Budi KRA',paket:'KRA',harga:150,status:'UNPAID'},
+      {no:'045',nama:'Mama Zian KRA',paket:'KRA',harga:200,status:'PAID'},
+      {no:'046',nama:'Pak Guntur KRA',paket:'KRA',harga:200,status:'PAID'},
+      {no:'047',nama:'Bpk Zul KRA',paket:'KRA',harga:150,status:'UNPAID'},
+      {no:'048',nama:'Mama Olif KRA',paket:'KRA',harga:200,status:'UNPAID'},
+      {no:'049',nama:'Andini GJY',paket:'GJY',harga:150,status:'UNPAID'},
+      {no:'050',nama:'Delfin KRA',paket:'KRA',harga:150,status:'UNPAID'},
+      {no:'051',nama:'Arwina KRA',paket:'KRA',harga:150,status:'PAID'},
+      {no:'052',nama:'Pak Prio KRA',paket:'KRA',harga:150,status:'PAID'},
+      {no:'053',nama:'Lely KRA',paket:'KRA',harga:150,status:'UNPAID'},
+    ];
+
+    // simpan data pelanggan ke localStorage bila belum ada
+    if(!localStorage.getItem('wifi_customers')){
+      localStorage.setItem('wifi_customers', JSON.stringify(IMPORT_CUSTOMERS));
+    }
+
+    const customerTable = document.getElementById('customerTable');
+    const searchName = document.getElementById('searchName');
+    const filterStatus = document.getElementById('filterStatus');
+
+    function loadCustomers(){
+      return JSON.parse(localStorage.getItem('wifi_customers') || '[]');
+    }
+
+    function saveCustomers(data){
+      localStorage.setItem('wifi_customers', JSON.stringify(data));
+    }
+
+    function renderCustomers(){
+      const q = searchName.value.toLowerCase();
+      const stat = filterStatus.value;
+      let data = loadCustomers();
+
+      if(q) data = data.filter(x => x.nama.toLowerCase().includes(q));
+      if(stat !== 'ALL') data = data.filter(x => x.status === stat);
+
+      let html = `<table width="100%" border="1" cellspacing="0" cellpadding="6">
+        <tr style="background:#f1f5f9"><th>No</th><th>Nama</th><th>Paket</th><th>Tarif/Bulan</th><th>Status</th><th>Aksi</th></tr>`;
+
+      data.forEach(c=>{
+        html += `<tr>
+          <td>${c.no}</td>
+          <td>${c.nama}</td>
+          <td>${c.paket}</td>
+          <td>Rp ${numberWithSeparator(c.harga)}</td>
+          <td>${c.status === 'PAID' ? '✅ Sudah Bayar' : '❌ Belum Bayar'}</td>
+          <td><button onclick="toggleStatus('${c.no}')">Ubah Status</button></td>
+        </tr>`;
+      });
+
+      html += '</table>';
+      customerTable.innerHTML = html;
+    }
+
+    function toggleStatus(no){
+      let data = loadCustomers();
+      data = data.map(x => x.no === no ? {...x, status: x.status === 'PAID' ? 'UNPAID':'PAID'} : x);
+      saveCustomers(data);
+      renderCustomers();
+    }
+
+    searchName.addEventListener('input', renderCustomers);
+    filterStatus.addEventListener('change', renderCustomers);
+
+    // --- Init ---
+    renderCustomers();
+
+    renderPackages(); renderAdminList();
+    // restore tx if exists
+    if(state.tx) showReceipt(state.tx);
+
+    // --- Notes for production (displayed in console) ---
+    console.info('--- Petunjuk integrasi produksi ---');
+    console.info('1) Pindahkan logika pembuatan transaksi ke server untuk keamanan (jangan buat kode akses di client).');
+    console.info('2) Integrasikan dengan payment gateway seperti Midtrans/Xendit/Stripe. Server akan membuat invoice dan mengembalikan token atau URL pembayaran.');
+    console.info('3) Setelah pembayaran terkonfirmasi, server harus mengirim kode akses/credential ke user (atau rotasi voucher).');
+    console.info('4) Untuk QR/QRIS gunakan generator server-side (qrcode npm, google chart api, atau library backend lain).');
+
+  </script>
+</body>
+</html>
